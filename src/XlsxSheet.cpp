@@ -423,7 +423,7 @@ void XlsxSheet::interleavedFunc(size_t numThreads, ParseState<numBuffers>& parse
             if (mSpecifiedTypes) {
                 const long long calcCol = (expectedColumn - static_cast<long long>(mSkipColumns) - 1);
                 if (mHeaders && (expectedRow - mSkipRows) == 0) {
-                    std::lock_guard<std::mutex>(parseState.headerMutex);
+                    std::lock_guard<std::mutex> guard(parseState.headerMutex);
                     //std::cout << "Header " << parseState.threadId << ": " << expectedRow << " / " << expectedColumn << ", " << static_cast<int>(cellType) << ": " << cellValueBuffer << std::endl;
                     if (mColTypesByName.size() > 0) {
                         // 1 by 1 remove from mColTypesByName and insert into mColTypesByIndex
