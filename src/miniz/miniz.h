@@ -173,11 +173,17 @@
 /* Set MINIZ_USE_UNALIGNED_LOADS_AND_STORES only if not set */
 #if !defined(MINIZ_USE_UNALIGNED_LOADS_AND_STORES)
 #if MINIZ_X86_OR_X64_CPU
-/* Set MINIZ_USE_UNALIGNED_LOADS_AND_STORES to 1 on CPU's that permit efficient integer loads and stores from unaligned addresses. */
-#define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 1
-#define MINIZ_UNALIGNED_USE_MEMCPY
+    #ifndef NDEBUG
+        // Debug build: Disable unaligned loads and stores
+        #define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 0
+        #define MINIZ_UNALIGNED_USE_MEMCPY
+    #else
+        // Release build: Enable unaligned loads and stores if not explicitly disabled
+        #define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 1
+        #define MINIZ_UNALIGNED_USE_MEMCPY
+    #endif
 #else
-#define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 0
+    #define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 0
 #endif
 #endif
 
