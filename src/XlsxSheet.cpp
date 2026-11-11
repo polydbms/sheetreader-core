@@ -260,6 +260,7 @@ void XlsxSheet::interleavedFunc(size_t numThreads, ParseState<numBuffers>& parse
 
     long long expectedRow = -1;
     long long expectedColumn = -1;
+    bool skippedCell = false;
     std::list<std::vector<XlsxCell>>& cells = mCells[parseState.threadId];
     std::vector<LocationInfo>& locs = mLocationInfos[parseState.threadId];
 
@@ -343,6 +344,13 @@ void XlsxSheet::interleavedFunc(size_t numThreads, ParseState<numBuffers>& parse
         }
         bool in_c = c.inside();
         c.process(current);
+        const bool cellComplete = c.completed();
+        if (!in_c && (c.inside() || cellComplete)) {
+            // Value parsers must not retain a preceding cell's closing-tag length.
+            v.reset();
+            t.reset();
+            cellValueLength = 0;
+        }
         if (!in_c) row.process(current); // false row extension could prevent v.process
         if (row.completedStart() && row.inside()) {
             unsigned long r = row.hasValue(0) ? static_cast<const IndexParser&>(row.getAttribute(0)).getValue() - 1 : -1;
@@ -369,7 +377,7 @@ void XlsxSheet::interleavedFunc(size_t numThreads, ParseState<numBuffers>& parse
             loadNext = true;
             continue;
         }
-        if (!in_c && !(continueCell && c.outside())) continue;
+        if (!in_c && !cellComplete && !(continueCell && c.outside())) continue;
         bool in_v = v.inside();
         bool in_t = t.inside();
         v.process(current);
@@ -383,7 +391,7 @@ void XlsxSheet::interleavedFunc(size_t numThreads, ParseState<numBuffers>& parse
             continue;
         }
         
-        if (c.completed()) {
+        if (cellComplete) {
             CellType cellType = CellType::T_NUMERIC;
             bool dateStyle = false;
             if (c.hasValue(0)) {
@@ -391,6 +399,7 @@ void XlsxSheet::interleavedFunc(size_t numThreads, ParseState<numBuffers>& parse
                 if (expectedColumn != static_cast<long long>(val.first) || expectedRow != static_cast<long long>(val.second) - 1) {
                     //std::cout << "Expectation mismatch: " << expectedColumn << " / " << expectedRow << ", " << val.first << " / " << val.second - 1 << std::endl;
                     locs.push_back(LocationInfo{static_cast<unsigned long>(cells.size()) - 1, static_cast<unsigned long>(cells.back().size()), val.first - 1, val.second - 1});
+                    skippedCell = false;
                     expectedColumn = val.first;
                     expectedRow = val.second - 1;
                 }
@@ -407,15 +416,29 @@ void XlsxSheet::interleavedFunc(size_t numThreads, ParseState<numBuffers>& parse
             if (c.hasValue(1)) cellType = static_cast<const TypeParser&>(c.getAttribute(1)).getValue();
             if (c.hasValue(2)) dateStyle = mParentFile.isDate(static_cast<const IndexParser&>(c.getAttribute(2)).getValue());
 
-            cellValueLength = cellValueLength - (cellType != CellType::T_STRING_INLINE ? v.getCloseLength() : t.getCloseLength()) + 1;
-            if (cellValueLength == 0) {// || (cellType != CellType::T_STRING_INLINE && static_cast<int>(cellValueLength) < v.getCloseLength()) || (cellType == CellType::T_STRING_INLINE && static_cast<int>(cellValueLength) < t.getCloseLength())) {
-                // no value
+            const size_t closeLength = cellType != CellType::T_STRING_INLINE
+                ? v.getCloseLength() : t.getCloseLength();
+            // The buffer includes the closing tag except its final '>'. An absent
+            // or empty value has no payload to subtract that tag length from.
+            if (closeLength == 0 || cellValueLength < closeLength) {
                 cellValueLength = 0;
                 cellValueBuffer[0] = 0;
+                skippedCell = true;
+                if (expectedColumn != -1) ++expectedColumn;
+                if (continueCell) loadNext = true;
                 continue;
             }
+            cellValueLength -= closeLength - 1;
 
-            cellValueBuffer[cellValueLength + 1] = 0;
+            cellValueBuffer[cellValueLength] = 0;
+            if (skippedCell) {
+                // Preserve the next value's position without storing empty cells.
+                locs.push_back(LocationInfo{static_cast<unsigned long>(cells.size()) - 1,
+                    static_cast<unsigned long>(cells.back().size()),
+                    static_cast<unsigned long>(expectedColumn - 1),
+                    static_cast<unsigned long>(expectedRow)});
+                skippedCell = false;
+            }
             /*if (rowNumber == 0 || cellColumn == 0 || cellType == CellType::T_NONE) {
                 throw std::runtime_error("Error when parsing cell");
             }*/
